@@ -5,7 +5,6 @@ flask
 timedelta
 numpy
 np
-defaultdict
 concurrent.futures
 lock
 pandas
