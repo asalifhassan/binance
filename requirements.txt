@@ -5,7 +5,6 @@ flask
 timedelta
 numpy
 np
-concurrent.futures
 lock
 pandas
 pd
