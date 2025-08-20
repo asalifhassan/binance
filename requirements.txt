@@ -2,7 +2,6 @@ requests
 python-binance
 pyTelegramBotAPI
 flask
-time
 os
 logging
 datetime
