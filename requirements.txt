@@ -1,6 +1,6 @@
-setuptools==65.5.0
-wheel==0.40.0
-requests==2.31.0
-pandas==2.0.3
-numpy==1.24.3
-python-telegram-bot==20.3
+# requirements.txt
+requests
+numpy
+pandas
+python-telegram-bot
+setuptools>=68.0.0  # Add this line
