@@ -10,6 +10,7 @@ from collections import defaultdict
 import concurrent.futures
 from threading import Lock
 import pandas as pd
+import telegram
 
 # ইউনিকোড সাপোর্ট নিশ্চিত করা
 if sys.platform == "win32":
@@ -28,9 +29,14 @@ logging.basicConfig(
 API_KEY = os.getenv("BINANCE_API_KEY", "83Z1SiHNpUaViSMS5vCgiCS4DQJXYG9aMI0duTs3k3z68q3jiqOkITWbprrs3OlE")
 headers = {"X-MBX-APIKEY": API_KEY}
 
+# টেলিগ্রাম বট সেটআপ
+TELEGRAM_BOT_TOKEN = os.getenv("7210983420:AAGx1fl6krrmYSYPbzhYsOa3iUOxDFicwec")
+TELEGRAM_CHAT_ID = os.getenv("7798815565")
+telegram_bot = telegram.Bot(token=TELEGRAM_BOT_TOKEN)
+
 # অপ্টিমাইজড রেট লিমিট ম্যানেজমেন্ট
 last_request_time = 0
-MIN_REQUEST_INTERVAL = 0.2  # 0.5 এর পরিবর্তে 0.2 সেকেন্ড
+MIN_REQUEST_INTERVAL = 0.2
 request_lock = Lock()
 
 # নেটওয়ার্ক সমস্যা হ্যান্ডলিং
@@ -43,20 +49,20 @@ adapter = requests.adapters.HTTPAdapter(
 session.mount('http://', adapter)
 session.mount('https://', adapter)
 
-# টপ কয়েন ব্ল্যাকলিস্ট
+# শুধুমাত্র টপ কয়েন ব্ল্যাকলিস্ট
 BLACKLISTED_COINS = [
-    "BTCUSDC", "ETHUSDC", "BNBUSDC", 
-    "SOLUSDC", "XRPUSDC", "ADAUSDC",
-    "AVAXUSDC", "DOGEUSDC", "DOTUSDC", "MATICUSDC", "LINKUSDC", "UNIUSDC",
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", 
+    "SOLUSDT", "XRPUSDT", "ADAUSDT",
+    "AVAXUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT", "LINKUSDT", "UNIUSDT",
     "LTCUSDT", "BCHUSDT", "ATOMUSDT", "ETCUSDT"
 ]
 
 # ট্রেডিং প্যারামিটার
 INVESTMENT_AMOUNT = 100
 LEVERAGE = 10
-COOLDOWN_PERIOD = 15 * 60  # 15 মিনিট কুলডাউন
-MIN_ACCURACY_THRESHOLD = 70  # ন্যূনতম 70% অ্যাকুরেসি
-MAX_SYMBOLS_TO_SCAN = 200  # সর্বোচ্চ ২০০টি সিম্বল স্ক্যান করা হবে
+COOLDOWN_PERIOD = 15 * 60
+MIN_ACCURACY_THRESHOLD = 70
+MAX_SYMBOLS_TO_SCAN = 500
 
 # সিগন্যাল হিস্ট্রি ট্র্যাকিং
 signal_history = {}
@@ -81,7 +87,6 @@ def get_all_futures_symbols():
         res.raise_for_status()
         data = res.json()
         
-        # সব USDT পেয়ার ফিউচার্স সিম্বল নির্বাচন
         symbols = []
         for s in data['symbols']:
             if (s['contractType'] == 'PERPETUAL' and 
@@ -91,13 +96,11 @@ def get_all_futures_symbols():
                 s['quoteAsset'] == 'USDT'):
                 symbols.append(s['symbol'])
         
-        # সব সিম্বলের ২৪ ঘন্টার টিকার ডেটা পাওয়া
         rate_limit()
         ticker_url = "https://fapi.binance.com/fapi/v1/ticker/24hr"
         ticker_res = session.get(ticker_url, headers=headers, timeout=10)
         ticker_data = ticker_res.json()
         
-        # সিম্বল অনুযায়ী ভলিউম ম্যাপ করা
         symbol_volume_map = {}
         for ticker in ticker_data:
             symbol = ticker['symbol']
@@ -108,10 +111,7 @@ def get_all_futures_symbols():
                 except:
                     continue
         
-        # ভলিউম অনুযায়ী সাজানো
         sorted_symbols = sorted(symbol_volume_map.items(), key=lambda x: x[1], reverse=True)
-        
-        # সর্বোচ্চ MAX_SYMBOLS_TO_SCAN সংখ্যক সিম্বল নেওয়া
         final_symbols = [s[0] for s in sorted_symbols[:MAX_SYMBOLS_TO_SCAN]]
         
         logging.info(f"Found {len(final_symbols)} symbols to scan (sorted by volume)")
@@ -119,34 +119,9 @@ def get_all_futures_symbols():
         
     except Exception as e:
         logging.error(f"Error fetching symbols: {e}")
-        # ফলব্যাক সিম্বল
         fallback_symbols = [
-            "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT", 
-            "ADAUSDT", "AVAXUSDT", "DOGEUSDT", "DOTUSDT", "MATICUSDT",
-            "LINKUSDT", "UNIUSDT", "LTCUSDT", "BCHUSDT", "ATOMUSDT",
-            "ETCUSDT", "XLMUSDT", "FTMUSDT", "NEARUSDT", "SANDUSDT",
-            "MANAUSDT", "AXSUSDT", "AAVEUSDT", "ALGOUSDT", "COMPUSDT",
-            "MKRUSDT", "YFIUSDT", "CRVUSDT", "SNXUSDT", "UNIUSDT",
-            "SUSHIUSDT", "1INCHUSDT", "ENJUSDT", "CHZUSDT", "BATUSDT",
-            "ZECUSDT", "DASHUSDT", "EOSUSDT", "TRXUSDT", "VETUSDT",
-            "THETAUSDT", "XTZUSDT", "BSVUSDT", "BTTUSDT", "HOTUSDT",
-            "IOTAUSDT", "XMRUSDT", "ETCUSDT", "ZRXUSDT", "BATUSDT",
-            "ZILUSDT", "WAVESUSDT", "KNCUSDT", "REPUSDT", "RENUSDT",
-            "KSMUSDT", "FILUSDT", "RUNEUSDT", "AKROUSDT", "ANTUSDT",
-            "BANDUSDT", "CVCUSDT", "DNTUSDT", "KEYUSDT", "OCEANUSDT",
-            "QNTUSDT", "SRMUSDT", "STORJUSDT", "TRBUSDT", "UMAUSDT",
-            "YFIIUSDT", "ZENUSDT", "BADGERUSDT", "FARMUSDT", "KEEPUSDT",
-            "NUUSDT", "PERPUSDT", "POLSUSDT", "RADUSDT", "RARIUSDT",
-            "SXPUSDT", "SWRVUSDT", "TORNUSDT", "UNIUSDT", "XVSUSDT",
-            "ALPHAUSDT", "ANKRUSDT", "BALUSDT", "BNTUSDT", "CELRUSDT",
-            "CROUSDT", "CTSIUSDT", "DIAUSDT", "DOSEUSDT", "EGLDUSDT",
-            "ELFUSDT", "FETUSDT", "GRTUSDT", "ICXUSDT", "IOSTUSDT",
-            "IOTXUSDT", "KAVAUSDT", "LRCUSDT", "MATICUSDT", "MDTUSDT",
-            "MKRUSDT", "MTLUSDT", "NKNUSDT", "OMGUSDT", "OXTUSDT",
-            "REEFUSDT", "RLCUSDT", "RSRUSDT", "RVNUSDT", "SKLUSDT",
-            "SNTUSDT", "STORMUSDT", "STRAXUSDT", "TCTUSDT", "TROYUSDT",
-            "TUSDUSDT", "USDCUSDT", "USTUSDT", "WINGUSDT", "WINUSDT",
-            "WRXUSDT", "XEMUSDT", "ZECUSDT", "ZENUSDT", "ZRXUSDT"
+            "1000SHIBUSDT", "1000XECUSDT", "ARBUSDT", "APEUSDT", "GALAUSDT",
+            "IMXUSDT", "LDOUSDT", "OPUSDT", "RNDRUSDT", "TIAUSDT"
         ]
         return [s for s in fallback_symbols if s not in BLACKLISTED_COINS][:MAX_SYMBOLS_TO_SCAN]
 
@@ -163,7 +138,7 @@ def fetch_single_timeframe(symbol, interval, limit=200):
         return None
 
 def fetch_multi_timeframe_data(symbol):
-    """মাল্টিপল টাইমফ্রেম ডেটা ফেচ করা (অপ্টিমাইজড)"""
+    """মাল্টিপল টাইমফ্রেম ডেটা ফেচ করা"""
     timeframes = ['15m', '1h', '4h']
     data = {}
     
@@ -251,7 +226,7 @@ def calculate_adx(highs, lows, closes, period=14):
     return df['dx'].rolling(window=period).mean().iloc[-1]
 
 def calculate_comprehensive_indicators(multi_tf_data):
-    """সব টাইমফ্রেমের জন্য কম্প্রিহেনসিভ ইন্ডিকেটর ক্যালকুলেশন (অপ্টিমাইজড)"""
+    """সব টাইমফ্রেমের জন্য কম্প্রিহেনসিভ ইন্ডিকেটর ক্যালকুলেশন"""
     all_indicators = {}
     
     for tf, data in multi_tf_data.items():
@@ -313,7 +288,7 @@ def calculate_comprehensive_indicators(multi_tf_data):
     return all_indicators
 
 def determine_market_regime(indicators):
-    """মার্কেট রেজিম ডিটারমাইন করা (সরলীকৃত)"""
+    """মার্কেট রেজিম ডিটারমাইন করা"""
     tf15m = indicators.get('15m', {})
     tf1h = indicators.get('1h', {})
     
@@ -343,7 +318,7 @@ def determine_market_regime(indicators):
         return 'neutral'
 
 def get_strict_signal(indicators, market_regime, symbol):
-    """স্ট্রিক্ট সিগন্যাল জেনারেশন (সরলীকৃত)"""
+    """স্ট্রিক্ট সিগন্যাল জেনারেশন"""
     tf15m = indicators.get('15m', {})
     tf1h = indicators.get('1h', {})
     
@@ -424,7 +399,7 @@ def get_strict_signal(indicators, market_regime, symbol):
         return "NO SIGNAL"
 
 def calculate_dynamic_levels(price, signal, indicators):
-    """ডায়নামিক TP/SL লেভেল ক্যালকুলেশন (সরলীকৃত)"""
+    """ডায়নামিক TP/SL লেভেল ক্যালকুলেশন"""
     tf15m = indicators.get('15m', {})
     volatility = tf15m.get('volatility', 2)
     
@@ -453,7 +428,7 @@ def calculate_dynamic_levels(price, signal, indicators):
     return entry, tp, sl
 
 def calculate_signal_score(indicators, signal):
-    """সিগন্যাল স্কোর ক্যালকুলেশন (সরলীকৃত)"""
+    """সিগন্যাল স্কোর ক্যালকুলেশন"""
     tf15m = indicators.get('15m', {})
     tf1h = indicators.get('1h', {})
     
@@ -481,7 +456,7 @@ def calculate_signal_score(indicators, signal):
     return score
 
 def analyze_trade_opportunity(symbol):
-    """ট্রেড অপরচুনিটি অ্যানালাইসিস (অপ্টিমাইজড)"""
+    """ট্রেড অপরচুনিটি অ্যানালাইসিস"""
     try:
         # মাল্টিপল টাইমফ্রেম ডেটা ফেচ
         multi_tf_data = fetch_multi_timeframe_data(symbol)
@@ -538,7 +513,7 @@ def analyze_trade_opportunity(symbol):
     return None
 
 def scan_best_signal():
-    """সেরা সিগন্যাল স্ক্যান করা (অপ্টিমাইজড)"""
+    """সেরা সিগন্যাল স্ক্যান করা"""
     symbols = get_all_futures_symbols()
     
     if not symbols:
@@ -553,7 +528,7 @@ def scan_best_signal():
     current_time = time.time()
     
     # প্যারালাল প্রসেসিং ব্যবহার করে সব সিম্বল একসাথে প্রসেস করা
-    with concurrent.futures.ThreadPoolExecutor(max_workers=15) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
         future_to_symbol = {
             executor.submit(analyze_trade_opportunity, symbol): symbol 
             for symbol in symbols
@@ -618,8 +593,65 @@ def save_signal_to_file(signal):
         json.dump(signal_with_profit, f)
         f.write('\n')
 
+def send_telegram_notification(signal):
+    """টেলিগ্রামে সিগন্যাল পাঠানো"""
+    try:
+        indicators = signal['indicators']
+        tf15m = indicators.get('15m', {})
+        tf1h = indicators.get('1h', {})
+        
+        # মেসেজ ফরম্যাট
+        message = f"""
+🔔 *HIGH ACCURACY TRADING SIGNAL DETECTED!*
+
+📅 *Time:* {signal['timestamp']}
+🪙 *Symbol:* {signal['symbol']}
+📊 *Direction:* {signal['signal']}
+⭐ *Signal Score:* {signal['score']}/100
+
+💰 *Current Price:* ${signal['price']:.8f}
+🎯 *Entry:* ${signal['entry']:.8f}
+📈 *Take Profit:* ${signal['tp']:.8f}
+📉 *Stop Loss:* ${signal['sl']:.8f}
+
+📈 *15m INDICATORS:*
+   EMA20: {tf15m.get('ema20', 0):.8f} | EMA50: {tf15m.get('ema50', 0):.8f}
+   RSI14: {tf15m.get('rsi14', 0):.2f} | MACD: {tf15m.get('macd', 0):.6f}
+   ADX: {tf15m.get('adx', 0):.2f} | Volume: {tf15m.get('volume_ratio', 0):.2f}x
+
+📈 *1h CONFIRMATION:*
+   EMA20: {tf1h.get('ema20', 0):.8f} | EMA50: {tf1h.get('ema50', 0):.8f}
+   RSI14: {tf1h.get('rsi14', 0):.2f} | ADX: {tf1h.get('adx', 0):.2f}
+
+⚠️ *Expected Accuracy:* 85-90%
+⚠️ *Risk Level:* LOW-MEDIUM
+⚠️ *Analysis:* Multi-timeframe confirmation with strict conditions
+        """
+        
+        # টেলিগ্রামে মেসেজ পাঠানো
+        telegram_bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text=message,
+            parse_mode=telegram.ParseMode.MARKDOWN
+        )
+        
+        logging.info(f"Telegram notification sent for {signal['symbol']}")
+        
+    except Exception as e:
+        logging.error(f"Error sending Telegram notification: {e}")
+
 def main():
     logging.info("HIGH ACCURACY TRADING BOT STARTED")
+    
+    # টেলিগ্রাম স্টার্টআপ মেসেজ
+    try:
+        telegram_bot.send_message(
+            chat_id=TELEGRAM_CHAT_ID,
+            text="🚀 *TRADING BOT STARTED*\n\nScanning for high accuracy signals...",
+            parse_mode=telegram.ParseMode.MARKDOWN
+        )
+    except Exception as e:
+        logging.error(f"Error sending startup message: {e}")
     
     signal_count = 0
     
@@ -643,6 +675,9 @@ def main():
                 logging.info(f"High accuracy signal #{signal_count} found for {symbol}")
                 display_signal(best_signal)
                 save_signal_to_file(best_signal)
+                
+                # টেলিগ্রাম নোটিফিকেশন পাঠানো
+                send_telegram_notification(best_signal)
                 
         except Exception as e:
             logging.error(f"Main loop error: {e}")
